@@ -51,9 +51,6 @@ public sealed class ResourceTab(Configuration config, ResourceManagerService res
         if (!table)
             return;
 
-        table.DrawColumn("Static Address:"u8);
-        table.NextColumn();
-        Penumbra.Dynamis.DrawPointer(resourceManager.ResourceManagerAddress);
         table.DrawColumn("Actual Address:"u8);
         table.NextColumn();
         Penumbra.Dynamis.DrawPointer(resourceManager.ResourceManager);
@@ -67,12 +64,12 @@ public sealed class ResourceTab(Configuration config, ResourceManagerService res
     private unsafe void DrawResourceMap(ResourceCategory category, uint ext,
         StdMap<uint, FFXIVClientStructs.Interop.Pointer<ResourceHandle>>* map)
     {
-        if (map == null)
+        if (map is null)
             return;
 
         var       label = GetNodeLabel((uint)category, ext, map->Count);
         using var tree  = Im.Tree.Node(label);
-        if (!tree || map->Count == 0)
+        if (!tree || map->Count is 0)
             return;
 
         using var table = Im.Table.Begin("##table"u8, 4, TableFlags.SizingFixedFit | TableFlags.RowBackground);

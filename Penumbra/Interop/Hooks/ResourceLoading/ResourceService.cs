@@ -43,7 +43,7 @@ public unsafe class ResourceService : IDisposable, Luna.IRequiredService
     public ResourceHandle* GetResource(ResourceCategory category, ResourceType type, CiByteString path)
     {
         var hash = path.Crc32;
-        return GetResourceHandler(true, (ResourceManager*)_resourceManager.ResourceManagerAddress,
+        return GetResourceHandler(true, ResourceManager.Instance(),
             &category,                  &type, &hash, path.Path, null, 0, 0, 0);
     }
 
