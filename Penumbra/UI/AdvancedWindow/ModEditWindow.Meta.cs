@@ -1,6 +1,7 @@
 using ImSharp;
 using Luna;
 using Penumbra.Api.Api;
+using Penumbra.Api.Enums;
 using Penumbra.GameData.Data;
 using Penumbra.GameData.Enums;
 using Penumbra.Meta.Manipulations;
@@ -19,11 +20,8 @@ public partial class ModEditWindow
         if (!tab)
             return;
 
-        DrawOptionSelectHeader();
-
         var setsEqual = !_editor.MetaEditor.Changes;
         var tt        = setsEqual ? "No changes staged."u8 : "Apply the currently staged changes to the option."u8;
-        Im.Line.New();
         if (ImEx.Button("Apply Changes"u8, Vector2.Zero, tt, setsEqual))
             _editor.MetaEditor.Apply(_editor.Option!);
 
@@ -74,7 +72,7 @@ public partial class ModEditWindow
             Im.Text($"Dragging .atch for {gr.ToName()}...");
             return true;
         });
-        var hasAtch = _editor.Files.Atch.Count > 0;
+        var hasAtch = _editor.Files.GetByType(ResourceType.Atch).Count > 0;
         if (ImEx.Button("Import .atch"u8, Vector2.Zero,
                 _dragDropManager.IsDragging
                     ? ""u8
@@ -97,7 +95,7 @@ public partial class ModEditWindow
             return;
         }
 
-        foreach (var atchFile in _editor.Files.Atch)
+        foreach (var atchFile in _editor.Files.GetByType(ResourceType.Atch))
         {
             if (Im.Selectable(atchFile.RelPath.Path.Span) && atchFile.File.Exists)
                 _metaDrawers.Atch.ImportFile(atchFile.File.FullName);

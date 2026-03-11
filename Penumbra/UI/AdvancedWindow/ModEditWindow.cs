@@ -18,10 +18,6 @@ using Penumbra.String.Classes;
 using Penumbra.UI.AdvancedWindow.Meta;
 using Penumbra.UI.Classes;
 using Penumbra.UI.FileEditing;
-using Penumbra.UI.FileEditing.Materials;
-using Penumbra.UI.FileEditing.Models;
-using Penumbra.UI.FileEditing.Shaders;
-using Penumbra.UI.FileEditing.Skeletons;
 using Penumbra.UI.FileEditing.Textures;
 using MdlMaterialEditor = Penumbra.Mods.Editor.MdlMaterialEditor;
 
@@ -31,15 +27,16 @@ public sealed partial class ModEditWindow : IndexedWindow, IDisposable
 {
     private const string WindowBaseLabel = "###SubModEdit";
 
-    private readonly ModEditor           _editor;
-    private readonly Configuration       _config;
-    private readonly ItemSwapTab         _itemSwapTab;
-    private readonly MetaFileManager     _metaFileManager;
-    private readonly ActiveCollections   _activeCollections;
-    private readonly ModMergeTab         _modMergeTab;
-    private readonly CommunicatorService _communicator;
-    private readonly IDragDropManager    _dragDropManager;
-    private readonly OptionSelectCombo   _optionSelect;
+    private readonly ModEditor            _editor;
+    private readonly Configuration        _config;
+    private readonly ItemSwapTab          _itemSwapTab;
+    private readonly MetaFileManager      _metaFileManager;
+    private readonly ActiveCollections    _activeCollections;
+    private readonly ModMergeTab          _modMergeTab;
+    private readonly CommunicatorService  _communicator;
+    private readonly IDragDropManager     _dragDropManager;
+    private readonly OptionSelectCombo    _optionSelect;
+    private readonly ModEditWindowFactory _parent;
 
     private readonly FileEditor _modelTab;
     private readonly FileEditor _materialTab;
@@ -56,6 +53,9 @@ public sealed partial class ModEditWindow : IndexedWindow, IDisposable
 
     public Mod? Mod { get; private set; }
 
+    public bool ModPinned
+        => _parent.UnpinnedWindow != this;
+
 
     public bool IsLoading
     {
@@ -68,15 +68,15 @@ public sealed partial class ModEditWindow : IndexedWindow, IDisposable
         }
     }
 
-    private readonly object _lock = new();
-    private          Task?  _loadingMod;
+    private readonly Lock  _lock = new();
+    private          Task? _loadingMod;
 
 
     private void AppendTask(Action run)
     {
         lock (_lock)
         {
-            if (_loadingMod == null || _loadingMod.IsCompleted)
+            if (_loadingMod is null || _loadingMod.IsCompleted)
                 _loadingMod = Task.Run(run);
             else
                 _loadingMod = _loadingMod.ContinueWith(_ => run());
@@ -88,12 +88,12 @@ public sealed partial class ModEditWindow : IndexedWindow, IDisposable
         if (mod == Mod)
             return;
 
+        Mod = mod;
+        _parent.SaveWindows();
         WindowName = $"{mod.Name} (LOADING){WindowBaseLabel}{Index}";
         AppendTask(() =>
         {
             _editor.LoadMod(mod, -1, 0).Wait();
-            Mod = mod;
-
             SizeConstraints = new WindowSizeConstraints
             {
                 MinimumSize = new Vector2(1240, 600),
@@ -121,12 +121,12 @@ public sealed partial class ModEditWindow : IndexedWindow, IDisposable
 
     public void UpdateModels()
     {
-        if (Mod != null)
+        if (Mod is not null)
             _editor.MdlMaterialEditor.ScanModels(Mod);
     }
 
     public override bool DrawConditions()
-        => Mod != null;
+        => Mod is not null;
 
     public override void PreDraw()
     {
@@ -185,8 +185,8 @@ public sealed partial class ModEditWindow : IndexedWindow, IDisposable
     public override void OnClose()
     {
         base.OnClose();
-        if (Mod is not null && _config.Ephemeral.AdvancedEditingOpenForModPaths.Remove(Mod.Identifier))
-            _config.Ephemeral.Save();
+        _parent.UnpinWindow(this, false);
+        _parent.SaveWindows();
         AppendTask(() =>
         {
             _textureEditor.Dispose();
@@ -202,9 +202,6 @@ public sealed partial class ModEditWindow : IndexedWindow, IDisposable
 
     public override void Draw()
     {
-        if (_config.Ephemeral.AdvancedEditingOpenForModPaths.Add(Mod!.Identifier))
-            _config.Ephemeral.Save();
-
         if (IsLoading)
         {
             var radius    = 100 * Im.Style.GlobalScale;
@@ -216,7 +213,10 @@ public sealed partial class ModEditWindow : IndexedWindow, IDisposable
             return;
         }
 
-        using var id     = Im.Id.Push(Mod!.Identifier);
+        using var id = Im.Id.Push(Mod!.Identifier);
+
+        var optionChanged = DrawOptionSelectHeader();
+
         using var tabBar = Im.TabBar.Begin("##tabs"u8);
         if (!tabBar)
             return;
@@ -227,7 +227,7 @@ public sealed partial class ModEditWindow : IndexedWindow, IDisposable
         DrawSwapTab();
         _modMergeTab.Draw();
         DrawDuplicatesTab();
-        DrawQuickImportTab();
+        DrawQuickImportTab(optionChanged);
         _modelTab.Draw();
         _materialTab.Draw();
         using (var tab = tabBar.Item("Textures"u8))
@@ -458,28 +458,45 @@ public sealed partial class ModEditWindow : IndexedWindow, IDisposable
 
     private bool DrawOptionSelectHeader()
     {
-        using var style = ImStyleDouble.ItemSpacing.Push(Vector2.Zero).Push(ImStyleSingle.FrameRounding, 0);
-        var       width = new Vector2(Im.ContentRegion.Available.X / 3, 0);
-        var       ret   = false;
-        if (ImEx.Button("Default Option"u8, width, "Switch to the default option for the mod.\nThis resets unsaved changes."u8,
-                _editor.Option is DefaultSubMod))
-        {
-            _editor.LoadOption(-1, 0).Wait();
-            ret = true;
-        }
+        var spacingX    = Im.Style.ItemInnerSpacing.X;
+        var frameHeight = Im.Style.FrameHeight;
+        var ret         = false;
 
-        Im.Line.Same();
-        if (ImEx.Button("Refresh Data"u8, width, "Refresh data for the current option.\nThis resets unsaved changes."u8))
+        using (ImStyleDouble.ItemSpacing.Push(Vector2.Zero).Push(ImStyleSingle.FrameRounding, 0))
         {
-            _editor.LoadMod(_editor.Mod!, _editor.GroupIdx, _editor.DataIdx).Wait();
-            ret = true;
-        }
+            var width = new Vector2((Im.ContentRegion.Available.X - spacingX - frameHeight) / 3, 0);
+            if (ImEx.Button("Default Option"u8, width, "Switch to the default option for the mod.\nThis resets unsaved changes."u8,
+                    _editor.Option is DefaultSubMod))
+            {
+                _editor.LoadOption(-1, 0).Wait();
+                ret = true;
+            }
 
-        Im.Line.Same();
-        if (_optionSelect.Draw("##option"u8, _editor.Option?.GetFullName() ?? string.Empty, default, width.X, out var option))
-        {
-            _editor.LoadOption(option.GroupIndex, option.DataIndex).Wait();
-            ret = true;
+            Im.Line.Same();
+            if (ImEx.Button("Refresh Data"u8, width, "Refresh data for the current option.\nThis resets unsaved changes."u8))
+            {
+                _editor.LoadMod(_editor.Mod!, _editor.GroupIdx, _editor.DataIdx).Wait();
+                ret = true;
+            }
+
+            Im.Line.Same();
+            if (_optionSelect.Draw("##option"u8, _editor.Option?.GetFullName() ?? string.Empty, default, width.X, out var option))
+            {
+                _editor.LoadOption(option.GroupIndex, option.DataIndex).Wait();
+                ret = true;
+            }
+
+            Im.Line.Same();
+            using (ImGuiColor.Button.Push(Im.Style[ImGuiColor.ButtonActive], ModPinned))
+            {
+                if (ImEx.Icon.Button(LunaStyle.PinIcon, _parent.UnpinnedWindow == this
+                            ? $"Pin {Mod?.Name} to this editing window.\nOpening Advanced Editing on another mod will then open another window."
+                            : _parent.UnpinnedWindow?.Mod is not { } mod
+                                ? $"Unpin {Mod?.Name} from this editing window.\nThis window will then follow your selected mod in the main window."
+                                : $"Unpin {Mod?.Name} from this editing window.\nThis window will then follow your selected mod in the main window.\n\nThis will pin an existing unpinned window to {mod.Name}.",
+                        false, new Vector2(frameHeight + spacingX, frameHeight)))
+                    _parent.UnpinWindow(this, _parent.UnpinnedWindow != this);
+            }
         }
 
         return ret;
@@ -493,8 +510,6 @@ public sealed partial class ModEditWindow : IndexedWindow, IDisposable
         using var tab = Im.TabBar.BeginItem("File Swaps"u8);
         if (!tab)
             return;
-
-        DrawOptionSelectHeader();
 
         var setsEqual = !_editor.SwapEditor.Changes;
         var tt        = setsEqual ? "No changes staged."u8 : "Apply the currently staged changes to the option."u8;
@@ -578,9 +593,8 @@ public sealed partial class ModEditWindow : IndexedWindow, IDisposable
         ActiveCollections activeCollections, ModMergeTab modMergeTab,
         CommunicatorService communicator, IDragDropManager dragDropManager,
         ResourceTreeViewerFactory resourceTreeViewerFactory, IFramework framework,
-        MetaDrawers metaDrawers, MaterialEditorFactory materialEditorFactory, ModelEditorFactory modelEditorFactory,
-        ShaderPackageEditorFactory shaderPackageEditorFactory, DeformerEditorFactory deformerEditorFactory,
-        CombiningTextureEditorFactory textureEditorFactory, int index)
+        MetaDrawers metaDrawers, FileEditorRegistry fileEditorRegistry, CombiningTextureEditorFactory textureEditorFactory,
+        int index, ModEditWindowFactory parent)
         : base(WindowBaseLabel, index)
     {
         _itemSwapTab       = itemSwapTab;
@@ -591,22 +605,21 @@ public sealed partial class ModEditWindow : IndexedWindow, IDisposable
         _modMergeTab       = modMergeTab;
         _communicator      = communicator;
         _dragDropManager   = dragDropManager;
+        _parent            = parent;
         _fileDialog        = fileDialog;
         _metaDrawers       = metaDrawers;
         _overviewTable     = new OverviewTable(_editor);
         _optionSelect      = new OptionSelectCombo(editor, this);
 
-        var fileEditingContext = new ModEditFileEditingContext(activeCollections, editor);
-
-        _materialTab      = CreateFileEditor("Materials", ".mtrl", ResourceType.Mtrl, materialEditorFactory);
-        _modelTab         = CreateFileEditor("Models",    ".mdl",  ResourceType.Mdl,  modelEditorFactory);
-        _shaderPackageTab = CreateFileEditor("Shaders",   ".shpk", ResourceType.Shpk, shaderPackageEditorFactory);
-        _pbdTab           = CreateFileEditor("Deformers", ".pbd",  ResourceType.Pbd,  deformerEditorFactory);
+        _materialTab      = CreateFileEditor("Materials", ".mtrl", ResourceType.Mtrl);
+        _modelTab         = CreateFileEditor("Models",    ".mdl",  ResourceType.Mdl);
+        _shaderPackageTab = CreateFileEditor("Shaders",   ".shpk", ResourceType.Shpk);
+        _pbdTab           = CreateFileEditor("Deformers", ".pbd",  ResourceType.Pbd);
 #if false
-        _newTextureTab = CreateFileEditor("Textures (2)", ".tex", ResourceType.Tex, textureEditorFactory);
+        _newTextureTab = CreateFileEditor("Textures (2)", ".tex,.atex", ResourceType.Tex);
 #endif
 
-        _textureEditor = textureEditorFactory.CreateForModEditWindow(fileEditingContext);
+        _textureEditor = textureEditorFactory.CreateForModEditWindow(new ModEditFileEditingContext(activeCollections, editor, null));
 
         _resourceTreeFactory = resourceTreeFactory;
         _quickImportViewer   = resourceTreeViewerFactory.Create(1, OnQuickImportRefresh, DrawQuickImportActions);
@@ -614,11 +627,11 @@ public sealed partial class ModEditWindow : IndexedWindow, IDisposable
 
         return;
 
-        FileEditor CreateFileEditor(string tabName, string fileType, ResourceType type, IFileEditorFactory editorFactory)
+        FileEditor CreateFileEditor(string tabName, string fileType, ResourceType type)
         {
             return new FileEditor(this, communicator, config, editor.Compactor, fileDialog, framework, tabName, fileType,
-                () => PopulateIsOnPlayer(_editor.Files.GetByType(type), type), () => Mod?.ModPath.FullName ?? string.Empty, editorFactory,
-                fileEditingContext);
+                () => PopulateIsOnPlayer(_editor.Files.GetByType(type), type), () => Mod?.ModPath.FullName ?? string.Empty, fileEditorRegistry,
+                () => new ModEditFileEditingContext(activeCollections, editor, editor.Mod));
         }
     }
 

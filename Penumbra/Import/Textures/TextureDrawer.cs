@@ -41,7 +41,7 @@ public static class TextureDrawer
     {
         tmpPath ??= current.Path;
         using var spacing = ImStyleDouble.ItemSpacing.PushX(Im.Style.GlobalScale * 3);
-        Im.Item.SetNextWidth(-2 * Im.Style.FrameHeight - 7 * Im.Style.GlobalScale);
+        Im.Item.SetNextWidth(-3 * Im.Style.FrameHeight - 9 * Im.Style.GlobalScale);
         if (ImEx.InputOnDeactivation.Text(label, tmpPath, out tmpPath, hint))
             current.Load(textures, tmpPath);
 
@@ -58,12 +58,16 @@ public static class TextureDrawer
                     current.Load(textures, paths[0]);
             }
 
-            fileDialog.OpenFilePicker("Open Image...", "Textures{.png,.dds,.tex,.tga}", UpdatePath, 1, startPath, false);
+            fileDialog.OpenFilePicker("Open Image...", "Textures{.png,.dds,.tex,.atex,.tga}", UpdatePath, 1, startPath, false);
         }
 
         Im.Line.Same();
         if (ImEx.Icon.Button(LunaStyle.RefreshIcon, "Reload the currently selected path."u8))
             current.Reload(textures);
+
+        Im.Line.Same();
+        if (ImEx.Icon.Button(LunaStyle.ToClipboardIcon, "Copy the currently selected path."u8))
+            Im.Clipboard.Set(current.Path);
     }
 
     private static void DrawData(Texture texture)
@@ -77,6 +81,12 @@ public static class TextureDrawer
         table.DrawColumn($"{texture.Type}");
         table.DrawColumn("Bitmap Size"u8);
         table.DrawColumn($"{FormattingFunctions.HumanReadableSize(texture.RgbaPixels.Length)} ({texture.RgbaPixels.Length} Bytes)");
+        if (texture.TryGetRgbaSolidColor(out var color))
+        {
+            table.DrawColumn("Solid Color"u8);
+            table.DrawColumn($"{color}");
+        }
+
         switch (texture.BaseImage.Image)
         {
             case ScratchImage s:

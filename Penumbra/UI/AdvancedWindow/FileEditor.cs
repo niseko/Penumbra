@@ -9,7 +9,6 @@ using Penumbra.Services;
 using Penumbra.String.Classes;
 using Penumbra.UI.Classes;
 using Penumbra.UI.FileEditing;
-using Penumbra.UI.FileEditing.Skeletons;
 
 namespace Penumbra.UI.AdvancedWindow;
 
@@ -24,8 +23,8 @@ public sealed class FileEditor(
     string fileType,
     Func<IEnumerable<FileRegistry>> getFiles,
     Func<string> getInitialPath,
-    IFileEditorFactory editorFactory,
-    FileEditingContext fileEditingContext)
+    FileEditorRegistry fileEditorRegistry,
+    Func<FileEditingContext> getFileEditingContext)
     : IDisposable
 {
     public void Draw()
@@ -92,7 +91,7 @@ public sealed class FileEditor(
     private Exception?   _currentException;
     private bool         _changed;
 
-    private string       _defaultPath = editorFactory is DeformerEditorFactory ? GamePaths.Pbd.Path : string.Empty;
+    private string       _defaultPath = fileType is ".pbd" ? GamePaths.Pbd.Path : string.Empty;
     private bool         _inInput;
     private Utf8GamePath _defaultPathUtf8;
     private bool         _isDefaultPathUtf8Valid;
@@ -118,7 +117,7 @@ public sealed class FileEditor(
             ClearDefaultFile(); // Avoid double disposal if an exception occurs during the parsing of the new file.
             try
             {
-                _defaultFile = editorFactory.CreateForGameFile(_defaultPath, fileEditingContext);
+                _defaultFile = fileEditorRegistry.CreateForGameFile(_defaultPath, getFileEditingContext());
             }
             catch (Exception e)
             {
@@ -198,7 +197,7 @@ public sealed class FileEditor(
         ClearCurrentFile(); // Avoid double disposal if an exception occurs during the parsing of the new file.
         try
         {
-            _currentFile = editorFactory.CreateForFile(CurrentPath.File.FullName, true, fileEditingContext);
+            _currentFile = fileEditorRegistry.CreateForFile(CurrentPath.File.FullName, true, null, getFileEditingContext());
         }
         catch (Exception e)
         {
