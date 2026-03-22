@@ -85,7 +85,7 @@ public class ValidityChecker : IService
 #endif
     }
 
-    // Check if the loaded version of Penumbra is installed from a valid source repo.
+    // Check if meow meow meow meow meow meow meow.
     private static bool CheckSourceRepo(IDalamudPluginInterface pi)
     {
 #if !DEBUG
