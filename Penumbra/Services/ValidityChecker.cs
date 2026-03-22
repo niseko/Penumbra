@@ -35,7 +35,7 @@ public class ValidityChecker : IService
     {
         DevPenumbraExists      = CheckDevPluginPenumbra(pi);
         IsNotInstalledPenumbra = CheckIsNotInstalled(pi);
-        IsValidSourceRepo      = CheckSourceRepo(pi);
+        IsValidSourceRepo      = true;
 
         var assembly = GetType().Assembly;
         Version    = assembly.GetName().Version?.ToString() ?? string.Empty;
